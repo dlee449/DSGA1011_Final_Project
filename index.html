@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <title>Dissecting LMMs' Struggle in Spatial Reasoning</title>
+  
+  <script src="https://distill.pub/template.v2.js"></script>
+  
+  <style>
+    d-article {
+      padding-top: 2rem;
+    }
+
+    d-byline {
+      display: none;
+    }
+
+    .custom-byline {
+      text-align: center;
+      font-size: 1rem;
+      font-weight: 600;
+      margin: -0.5rem 0 1.5rem;
+    }
+
+    pre.code-block {
+      background-color: #f6f8fa;
+      border-radius: 4px;
+      padding: 1rem;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.95rem;
+    }
+
+    figure.inline-image {
+      margin: 1.25rem auto;
+      text-align: center;
+    }
+
+    figure.inline-image img {
+      max-width: 50%;
+      height: auto;
+      border-radius: 6px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    }
+
+    figure.inline-image figcaption {
+      text-align: center;
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+      color: #555;
+    }
+
+    table {
+      margin-top: 1.5rem;
+    }
+
+    .table-caption {
+      text-align: center;
+      font-style: italic;
+      font-size: 0.95rem;
+      margin: 0.5rem 0 2rem;
+    }
+
+  </style>
+</head>
+
+<body>
+
+<d-front-matter>
+  <script type="text/json">
+  {
+    "title": "Dissecting LMMs' Struggle in Spatial Reasoning",
+    "description": "A systematic investigation of why Large Multimodal Models struggle with spatial reasoning tasks, revealing that failures stem from linguistic comprehension, visual perception, and reasoning itself.",
+    "published": "December 10, 2025",
+    "authors": [
+      {
+        "author": "David Lee",
+        "authorURL": "#"
+      }
+    ],
+    "katex": {
+      "delimiters": [
+        {"left": "$", "right": "$", "display": false},
+        {"left": "$$", "right": "$$", "display": true}
+      ]
+    }
+  }
+  </script>
+</d-front-matter>
+
+<d-title>
+  <h1>Dissecting LMMs' Struggle in Spatial Reasoning</h1>
+  <p>A systematic investigation of failure modes in Large Multimodal Models</p>
+</d-title>
+
+<d-byline></d-byline>
+
+<p class="custom-byline">David Lee · December 10, 2025</p>
+
+<d-article>
+
+<p>This post investigates why Large Multimodal Models (LMMs) struggle with spatial reasoning tasks. Through systematic experiments with GPT-4o, GPT-5 Mini, Gemini 2.5 Flash, and Gemini 2.5 Flash-Lite, results show that failures stem from three distinct sources: linguistic comprehension, visual perception, and reasoning itself. Surprisingly, Chain-of-Thought prompting shows inconsistent benefits, and this post uncovers critical flaws in existing benchmarks that conflate these different failure modes.</p>
+
+<h2>Introduction: The Spatial Reasoning Puzzle</h2>
+
+<p>When I first encountered research on spatial reasoning in Large Language Models (LLMs), I was surprised by the counterintuitive finding: <strong>Chain-of-Thought (CoT) prompting, which dramatically improves performance on mathematical reasoning—actually hurt performance on spatial reasoning tasks</strong>. This seemed paradoxical. Wei et al.<d-cite key="wei2022chain"></d-cite> demonstrated that CoT prompting eliciting explicit reasoning steps substantially improves performance on logical reasoning tasks like math word problems and commonsense reasoning. If explicit step-by-step reasoning helps models solve complex math problems, why would it fail for spatial questions that require similar logical steps?</p>
+
+<p>The paper "An Empirical Analysis on Spatial Reasoning Capabilities of Large Multimodal Models"<d-cite key="shiri2024spatial"></d-cite> proposed that structural aids like bounding boxes and scene graphs were more effective than CoT prompting for improving spatial reasoning. However, this raised a fundamental methodological concern: <strong>Are we actually measuring genuine visual-spatial reasoning, or just the ability to process structured text?</strong></p>
+
+<h3>The Problem with Current Benchmarks</h3>
+
+<p>Consider these two prompts for the same image:</p>
+
+<figure class="inline-image">
+  <img src="3bf9680481.jpg" alt="Spatial-MM example with animals" />
+  <figcaption>Image ID: 3bf9680481</figcaption>
+</figure>
+
+<pre class="code-block"><code>Standard Prompt: "Given the image, where is the black dog from the light cat's perspective?" 
+
+Scene Graph Prompt: "Given the scene graph, where is the black dog from the light cat's perspective?"
+[light cat is third from the left], [black dog is far right], [light cat is to the left of the black dog], [light cat perspective is image's left]  
+
+Bounding Box Prompt: "Given the bounding boxes, where is the black dog from the light cat's perspective?" 
+
+Chain-of-Thought Prompt: "Given the image, where is the black dog from the light cat's perspective? Let's think step by step before answering the question. Explain your reasoning in less than three sentences. Then answer the question."
+</code></pre>
+
+<p>The scene graph prompt included specific reasoning steps that are required to answer the question. There were some scene graphs could be used to logically deduce the answer to the question even without the image. This led to my question: are we actually measuring genuine visual-spatial reasoning, or just the ability to process structured text? Bounding boxes provided the coordinates of the objects relevant to the question, which provides help in object recognition. Object recognition is an included step in spatial reasoning, yet a different task to reasoning itself.</p>
+<p>This observation led me to question: <strong>In order to truly compare reasoning capability, shouldn't we isolate questions where structural aids are not relevant to improving performance?</strong></p>
+
+<h3>Key Research Questions</h3>
+<ol>
+    <li><strong>Prompt Efficacy:</strong> Does Chain-of-Thought prompting improve spatial reasoning when we properly isolate the reasoning component?</li>
+    <li><strong>Error Type Analysis:</strong> Do models genuinely struggle with spatial reasoning, or are failures primarily due to linguistic or perceptual limitations?</li>
+    <li><strong>Benchmark Quality:</strong> Does the Spatial-MM benchmark contain methodological flaws that conflate different types of capabilities?</li>
+</ol>
+
+<h2>Background: Understanding Spatial Reasoning in LMMs</h2>
+
+<h3>What is Spatial Reasoning?</h3>
+
+<p>Spatial reasoning involves understanding relational concepts like "to the left of," "behind," or "from the object's viewpoint." For humans, this requires mental rotation, perspective-taking, and integrating multiple spatial relationships. For Large Multimodal Models (LMMs), the challenge is even more complex: they must first detect objects, understand linguistic queries, and then perform the spatial reasoning.</p>
+
+<h3>Current State-of-the-Art Approaches</h3>
+
+<p>Contemporary LMMs employ distinct architectural approaches:</p>
+
+<ul>
+    <li><strong>Gemini Flash/Flash-Lite:</strong> Use separate vision encoders with late fusion cross-attention</li>
+    <li><strong>GPT-4o/GPT-5 Mini:</strong> Employ unified multimodal transformers where image patches and text tokens undergo joint processing</li>
+</ul>
+
+<p>Despite these architectural differences, all models share a fundamental mechanism: they encode images into internal representations and integrate them with textual queries through attention mechanisms. <strong>This attention mechanism is critical</strong>—establishing connections between queries and visual content is prerequisite for spatial reasoning tasks.</p>
+
+<h3>The Three-Stage Diagnostic Framework</h3>
+
+<p>To properly evaluate spatial reasoning, we propose decomposing the task into three fundamental components:</p>
+
+<ol>
+    <li><strong>Question Understanding:</strong> Does the model comprehend the linguistic structure of the query?</li>
+    <li><strong>Visual Perception:</strong> Does the model successfully detect question-relevant objects?</li>
+    <li><strong>Reasoning:</strong> Given correct linguistic understanding and perception, can the model follow the correct reasoning path?</li>
+</ol>
+
+<p>Previous work by Shiri et al.<d-cite key="shiri2024spatial"></d-cite> partially addressed these components through their Spatial-obj and GQA-spatial datasets<d-cite key="hudson2019gqa"></d-cite>, but lacked explicit isolation between stages. This prevents quantitative evaluation of where exactly failures occur.</p>
+
+<h2>Methodology: A Systematic Investigation</h2>
+
+<h3>Dataset</h3>
+
+<p>We utilized two primary components of the Spatial-MM benchmark<d-cite key="shiri2024spatial"></d-cite>:</p>
+
+<ul>
+    <li><strong>Spatial-Obj:</strong> Perspective-dependent spatial questions involving one or two objects, evaluating basic spatial grounding</li>
+    <li><strong>Spatial-CoT (Multi-hop):</strong> Complex questions requiring two or more reasoning steps, demanding accurate object detection and relationship chaining</li>
+</ul>
+
+<p><em>Note: All example images referenced in this post are from the Spatial-MM benchmark dataset<d-cite key="shiri2024spatial"></d-cite> and are identified by their dataset IDs for reproducibility.</em></p>
+
+<h3>Models Evaluated</h3>
+
+<ul>
+    <li>GPT-4o</li>
+    <li>GPT-5 Mini</li>
+    <li>Gemini 2.5 Flash</li>
+    <li>Gemini 2.5 Flash-Lite</li>
+</ul>
+
+<h3>Prompting Strategies</h3>
+
+<p>To systematically evaluate performance, prompts were varied in four ways:</p>
+
+<ol>
+    <li><strong>Standard Prompt (Baseline):</strong> "Given an image, answer the question."</li>
+    <li><strong>Bounding Box Prompt:</strong> Augmentation with bounding box coordinates for relevant objects</li>
+    <li><strong>Scene Graph Prompt:</strong> Augmentation with explicit scene graph representations encoding spatial relationships</li>
+    <li><strong>Zero-Shot Chain-of-Thought Prompt:</strong> "Let's think step by step. Explain your reasoning in fewer than three sentences."</li>
+</ol>
+
+<p><strong>By comparing performance across these prompts, the components (understanding, perception, or reasoning) of failure causes can be isolated.</strong></p>
+
+<h3>Analysis Methodology</h3>
+
+<ul>
+  <li><strong>Aggregate Performance Tables:</strong> Overall accuracy for each model is reported across prompt types (Standard vs. CoT), perspectives (Human vs. Camera), and datasets (Spatial-Obj vs. Spatial-CoT) to surface high-level trends.</li>
+  <li><strong>Performance by Reasoning Complexity:</strong> Questions are binned by the number of reasoning hops required (2 hops, 3 hops, ≥4 hops) to examine whether CoT benefits scale with problem complexity.</li>
+  <li><strong>Statistical Significance Testing:</strong> Paired logistic regression is used to test the null hypothesis that CoT prompting does not improve accuracy compared to standard prompting, accounting for the repeated-measures structure where the same questions are answered under different conditions.</li>
+  <li><strong>Pure Reasoning Isolation:</strong> To disentangle the three failure modes described below, questions that models answer incorrectly under Standard, Bounding Box, and Scene Graph prompts are isolated. These items filter out Stage&nbsp;1 (question understanding) and Stage&nbsp;2 (visual perception) failures, leaving only Stage&nbsp;3 (reasoning/integration) challenges. CoT accuracy on this subset indicates whether explicit reasoning steps help when understanding and perception are no longer the bottlenecks.</li>
+</ul>
+
+<h3>Three Failure Modes</h3>
+
+<h4>Stage 1: Question Understanding (Linguistic Failure)</h4>
+
+<figure class="inline-image">
+  <img src="a5a2bbf44e33.jpeg" alt="Two women sitting at a pink table with teddy bears" />
+  <figcaption>Image ID: a5a2bbf44e33</figcaption>
+</figure>
+
+<pre class="code-block"><code>Model Response: "The pink teddy bear is located to the left of the women,
+behind the woman on the left. It is positioned on a bench against the wall."
+Answer: "to the left and behind."
+</code></pre>
+
+<p><strong>Issue:</strong> The question asked "where the pink teddy bear is in the perspective of the woman," but the model never considered perspective. It simply described spatial relations from the camera's viewpoint. This question was correctly answered when using scene graph prompts.</p>
+
+<p><strong>Implication:</strong> The model failed to parse the perspective-taking requirement from natural language, indicating linguistic comprehension difficulties rather than reasoning failures. Similar questions were removed for isolating pure reasoning.</p>
+
+<h4>Stage 2: Visual Perception (Detection Failure)</h4>
+
+<figure class="inline-image">
+  <img src="c51cu410c1.jpeg" alt="Adult monkey with baby on its back in natural setting" />
+  <figcaption>Image ID: c51cu410c1</figcaption>
+</figure>
+
+<p><strong>Issue:</strong> The question asked about "the adult monkey having a baby monkey on its back," but the model identified a different monkey (one with a baby next to it rather than on its back) to answer the question. This was corrected when bounding boxes were provided.</p>
+
+<p><strong>Implication:</strong> The failure occurred at the object detection stage. The model couldn't accurately identify which monkey matched the description. This is a visual perception problem, not a reasoning deficiency. Similar questions were removed for isolating pure reasoning.</p>
+
+<h4>Stage 3: Reasoning and Integration (Mental Rotation Failure)</h4>
+
+<figure class="inline-image">
+  <img src="784b42da99.jpg" alt="Two parakeets in a cage" />
+  <figcaption>Image ID: 784b42da99</figcaption>
+</figure>
+
+<p><strong>Issue:</strong> The model failed to perform mental rotation to answer "where is the blue parrot from the yellow parrot's perspective?" Instead, it answered from the camera's perspective. This question was answered incorrectly under standard, bounding box, and scene graph prompts, but was answered correctly when using CoT prompting.</p>
+
+<p><strong>Implication:</strong> This question failed at the reasoning stage itself, specifically egocentric perspective transformation. The fact that CoT prompting successfully resolved this failure demonstrates that <strong>explicit step-by-step reasoning framework helps models perform the multi-hop reasoning required for mental rotation</strong>. Similar questions were targeted for isolating pure reasoning.<d-cite key="wei2022chain"></d-cite> requiring multiple inferential steps.</p>
+
+<p>Combining scene graphs, bounding boxes, and CoT prompts lets us isolate linguistic, perceptual, and reasoning failures respectively; when a question remains unsolved until we add CoT, it signals a genuine reasoning bottleneck and shows that explicit scaffolding can unlock multi-hop spatial reasoning.</p>
+
+<h2>Results</h2>
+
+<table>
+    <thead>
+        <tr>
+            <th>Model</th>
+            <th>Prompt</th>
+            <th>Perspective</th>
+            <th>Spatial-Obj</th>
+            <th>Spatial-CoT</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td rowspan="4"><strong>GPT-4o</strong></td>
+            <td rowspan="2">Standard</td>
+            <td>Human</td>
+            <td>47.8</td>
+            <td>61.0</td>
+        </tr>
+        <tr>
+            <td>Camera</td>
+            <td>73.9</td>
+            <td>75.3</td>
+        </tr>
+        <tr>
+            <td rowspan="2">CoT</td>
+            <td>Human</td>
+            <td>49.5</td>
+            <td>62.7</td>
+        </tr>
+        <tr>
+            <td>Camera</td>
+            <td>78.0</td>
+            <td>75.3</td>
+        </tr>
+        <tr>
+            <td rowspan="4"><strong>GPT-5 Mini</strong></td>
+            <td rowspan="2">Standard</td>
+            <td>Human</td>
+            <td>52.2</td>
+            <td>63.6</td>
+        </tr>
+        <tr>
+            <td>Camera</td>
+            <td>88.1</td>
+            <td>76.7</td>
+        </tr>
+        <tr>
+            <td rowspan="2">CoT</td>
+            <td>Human</td>
+            <td>47.1</td>
+            <td>68.6</td>
+        </tr>
+        <tr>
+            <td>Camera</td>
+            <td>84.8</td>
+            <td>76.7</td>
+        </tr>
+        <tr>
+            <td rowspan="4"><strong>Gemini Flash</strong></td>
+            <td rowspan="2">Standard</td>
+            <td>Human</td>
+            <td>51.8</td>
+            <td>64.8</td>
+        </tr>
+        <tr>
+            <td>Camera</td>
+            <td>87.3</td>
+            <td>84.9</td>
+        </tr>
+        <tr>
+            <td rowspan="2">CoT</td>
+            <td>Human</td>
+            <td>51.5</td>
+            <td>64.7</td>
+        </tr>
+        <tr>
+            <td>Camera</td>
+            <td>87.5</td>
+            <td>80.6</td>
+        </tr>
+        <tr>
+            <td rowspan="4"><strong>Gemini Flash-Lite</strong></td>
+            <td rowspan="2">Standard</td>
+            <td>Human</td>
+            <td>45.2</td>
+            <td>57.4</td>
+        </tr>
+        <tr>
+            <td>Camera</td>
+            <td>62.8</td>
+            <td>63.0</td>
+        </tr>
+        <tr>
+            <td rowspan="2">CoT</td>
+            <td>Human</td>
+            <td>49.3</td>
+            <td>62.3</td>
+        </tr>
+        <tr>
+            <td>Camera</td>
+            <td>77.0</td>
+            <td>74.0</td>
+        </tr>
+    </tbody>
+</table>
+
+<p class="table-caption">Table 1: Overall accuracy on Spatial-Obj and Spatial-CoT splits across models, prompts, and viewpoints.</p>
+
+<p>The overall accuracy table shows inconsistent gains from explicit CoT prompting, implying that the models already employ implicit reasoning and sometimes get distracted by extra instructions.</p>
+
+<p>The same results highlight a persistent 20-40% lower accuracy on human-perspective questions relative to camera-perspective questions, showing challenges with mental rotation.</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Model</th>
+            <th>Prompt</th>
+            <th>2 Hops</th>
+            <th>3 Hops</th>
+            <th>≥4 Hops</th>
+            <th>Overall</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td rowspan="2"><strong>GPT-4o</strong></td>
+            <td>Standard</td>
+            <td>82.2</td>
+            <td>70.5</td>
+            <td>55.3</td>
+            <td>64.4</td>
+        </tr>
+        <tr>
+            <td>CoT</td>
+            <td>73.3</td>
+            <td>78.1</td>
+            <td>55.3</td>
+            <td>65.7</td>
+        </tr>
+        <tr>
+            <td rowspan="2"><strong>GPT-5 Mini</strong></td>
+            <td>Standard</td>
+            <td>77.8</td>
+            <td>78.1</td>
+            <td>56.0</td>
+            <td>66.7</td>
+        </tr>
+        <tr>
+            <td>CoT</td>
+            <td>80.0</td>
+            <td>82.9</td>
+            <td>59.7</td>
+            <td>70.6</td>
+        </tr>
+        <tr>
+            <td rowspan="2"><strong>Gemini Flash</strong></td>
+            <td>Standard</td>
+            <td>86.7</td>
+            <td>78.1</td>
+            <td>59.1</td>
+            <td>69.6</td>
+        </tr>
+        <tr>
+            <td>CoT</td>
+            <td>88.9</td>
+            <td>74.3</td>
+            <td>58.6</td>
+            <td>68.4</td>
+        </tr>
+        <tr>
+            <td rowspan="2"><strong>Gemini Flash-Lite</strong></td>
+            <td>Standard</td>
+            <td>80.0</td>
+            <td>65.7</td>
+            <td>48.1</td>
+            <td>58.8</td>
+        </tr>
+        <tr>
+            <td>CoT</td>
+            <td>77.8</td>
+            <td>75.2</td>
+            <td>54.7</td>
+            <td>65.0</td>
+        </tr>
+    </tbody>
+</table>
+
+<p class="table-caption">Table 2: Accuracy by reasoning complexity (number of hops) for each model and prompt style.</p>
+
+<p>The hop-by-hop breakdown further reveals a non-monotonic relationship between difficulty and accuracy: CoT sometimes hurts 2-hop questions yet helps 3-hop ones, suggesting benchmark quirks and the "overthinking" dynamics noted by Peng et al.<d-cite key="peng2025overthinking"></d-cite></p>
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Model</th>
+            <th>Hops</th>
+            <th>N</th>
+            <th>Standard Acc</th>
+            <th>CoT Acc</th>
+            <th>P-Value</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td rowspan="3"><strong>GPT-4o</strong></td>
+            <td>2 Hops</td>
+            <td>51</td>
+            <td>84.3%</td>
+            <td>76.5%</td>
+            <td>0.9327</td>
+        </tr>
+        <tr>
+            <td>3 Hops</td>
+            <td>113</td>
+            <td>69.0%</td>
+            <td>77.9%</td>
+            <td>0.0204*</td>
+        </tr>
+        <tr>
+            <td>≥4 Hops</td>
+            <td>181</td>
+            <td>54.1%</td>
+            <td>52.5%</td>
+            <td>0.6378</td>
+        </tr>
+        <tr>
+            <td rowspan="3"><strong>GPT-5 Mini</strong></td>
+            <td>2 Hops</td>
+            <td>51</td>
+            <td>80.4%</td>
+            <td>82.4%</td>
+            <td>0.1441</td>
+        </tr>
+        <tr>
+            <td>3 Hops</td>
+            <td>113</td>
+            <td>77.0%</td>
+            <td>83.2%</td>
+            <td>0.0545</td>
+        </tr>
+        <tr>
+            <td>≥4 Hops</td>
+            <td>181</td>
+            <td>54.1%</td>
+            <td>56.4%</td>
+            <td>0.2074</td>
+        </tr>
+        <tr>
+            <td rowspan="3"><strong>Gemini Flash</strong></td>
+            <td>2 Hops</td>
+            <td>51</td>
+            <td>88.2%</td>
+            <td>90.2%</td>
+            <td>0.3175</td>
+        </tr>
+        <tr>
+            <td>3 Hops</td>
+            <td>113</td>
+            <td>76.1%</td>
+            <td>73.5%</td>
+            <td>0.8030</td>
+        </tr>
+        <tr>
+            <td>≥4 Hops</td>
+            <td>179</td>
+            <td>56.4%</td>
+            <td>57.5%</td>
+            <td>0.3343</td>
+        </tr>
+        <tr>
+            <td rowspan="3"><strong>Gemini Flash-Lite</strong></td>
+            <td>2 Hops</td>
+            <td>51</td>
+            <td>82.4%</td>
+            <td>80.4%</td>
+            <td>0.6550</td>
+        </tr>
+        <tr>
+            <td>3 Hops</td>
+            <td>113</td>
+            <td>64.6%</td>
+            <td>75.2%</td>
+            <td>0.0084**</td>
+        </tr>
+        <tr>
+            <td>≥4 Hops</td>
+            <td>180</td>
+            <td>48.9%</td>
+            <td>54.4%</td>
+            <td>0.0877</td>
+        </tr>
+    </tbody>
+</table>
+
+<p class="table-caption">Table 3: Paired logistic regression comparing standard vs. CoT prompting accuracy for each hop count.</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Model</th>
+            <th>Hop Bin</th>
+            <th>N (Pure Reasoning)</th>
+            <th>CoT Accuracy on Subset</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td rowspan="3"><strong>GPT-4o</strong></td>
+            <td>2 Hops</td>
+            <td>0</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>3 Hops</td>
+            <td>35</td>
+            <td><strong>48.6%</strong></td>
+        </tr>
+        <tr>
+            <td>≥4 Hops</td>
+            <td>83</td>
+            <td>20.5%</td>
+        </tr>
+        <tr>
+            <td rowspan="3"><strong>GPT-5 Mini</strong></td>
+            <td>2 Hops</td>
+            <td>0</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>3 Hops</td>
+            <td>26</td>
+            <td><strong>34.6%</strong></td>
+        </tr>
+        <tr>
+            <td>≥4 Hops</td>
+            <td>83</td>
+            <td>16.9%</td>
+        </tr>
+        <tr>
+            <td rowspan="3"><strong>Gemini Flash</strong></td>
+            <td>2 Hops</td>
+            <td>3</td>
+            <td>0.0%</td>
+        </tr>
+        <tr>
+            <td>3 Hops</td>
+            <td>27</td>
+            <td><strong>18.5%</strong></td>
+        </tr>
+        <tr>
+            <td>≥4 Hops</td>
+            <td>78</td>
+            <td>16.7%</td>
+        </tr>
+        <tr>
+            <td rowspan="3"><strong>Gemini Flash-Lite</strong></td>
+            <td>2 Hops</td>
+            <td>0</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>3 Hops</td>
+            <td>40</td>
+            <td><strong>47.5%</strong></td>
+        </tr>
+        <tr>
+            <td>≥4 Hops</td>
+            <td>92</td>
+            <td>30.4%</td>
+        </tr>
+    </tbody>
+</table>
+
+<p class="table-caption">Table 4: CoT accuracy on questions requiring pure reasoning, where structural aids fail to help.</p>
+
+
+
+<h3>Isolating Pure Reasoning: The Critical Test</h3>
+
+<p>To truly assess CoT's impact on reasoning (independent of linguistic understanding and visual perception), we analyzed only questions that models answered incorrectly under standard, bounding box, and scene graph prompts. These represent "pure reasoning" challenges where structural aids don't help.</p>
+
+<p>In table 3, only 3-hop questions showed statistically significant improvements with CoT prompting for GPT-4o and Gemini Flash-Lite. In table 4, the pure-reasoning subset table confirms that once linguistic and perceptual issues are ruled out, CoT prompting boosts success rates on 3-hop (18.5%-48.6%) and ≥4-hop (16.7%-30.4%) questions, validating its value for complex multi-step reasoning. The lack of significance suggests that CoT may cause "overthinking" on simpler parts of the problems.<d-cite key="peng2025overthinking"></d-cite></p>
+
+
+<h2>Benchmark Limitations: What's Wrong with Spatial-MM?</h2>
+
+<p>Our analysis uncovered several critical issues with the Spatial-MM benchmark<d-cite key="shiri2024spatial"></d-cite>:</p>
+
+<h3>Alternative Reasoning Paths Not Recognized</h3>
+
+<figure class="inline-image">
+  <img src="45s48cce2e.jpeg" alt="Spatial-MM example 45s48cce2e" />
+  <figcaption>Image ID: 45s48cce2e</figcaption>
+</figure>
+
+<p><strong>Problem:</strong> The model produced an alternative but logically valid reasoning path to arrive at the correct answer. However, the benchmark only annotates a single "correct" reasoning path as ground truth. For many spatial reasoning tasks, multiple correct reasoning paths exist. Penalizing valid alternatives artificially deflates model performance metrics and fails to capture genuine reasoning capability.</p>
+
+<h3>Malformed and Ambiguous Questions</h3>
+
+<figure class="inline-image">
+  <img src="eccbc87i4b.jpg" alt="Spatial-MM example eccbc87i4b" />
+  <figcaption>Image ID: eccbc87i4b</figcaption>
+</figure>
+
+<pre class="code-block"><code>Question: "What object is directly on the right hand side of the laptop no one using it?"
+</code></pre>
+
+<p><strong>Problem:</strong> This question has structural ambiguity—it's unclear whether "right hand side" means:</p>
+<ul>
+    <li>Right relative to the laptop's intrinsic orientation, or</li>
+    <li>Right relative to the camera's perspective</li>
+</ul>
+
+<p>The model's answer was correct for one interpretation but marked wrong. Question formats should be more clear to properly assess model's performance.</p>
+
+<h3>Recommendations for Future Benchmarks</h3>
+<ol>
+    <li>Accept multiple valid reasoning paths</li>
+    <li>Rigorously validate question clarity and remove ambiguous items</li>
+    <li>Separately measure linguistic understanding, visual perception, and reasoning using the three-stage framework</li>
+</ol>
+
+<h2>Discussion</h2>
+
+
+
+<p>Our findings suggest a nuanced answer: <strong>Models struggle with all three components—linguistic understanding, visual perception, and reasoning—but to varying degrees.</strong>
+The 20-40% performance gap between camera and human perspective questions indicates fundamental limitations in egocentric reasoning and mental rotation.
+Bounding boxes substantially improve performance, revealing perception bottlenecks.
+Scene graphs help significantly, exposing question comprehension issues.
+Importantly, <strong>when we isolate pure reasoning tasks (where structural aids don't help), CoT prompting provides meaningful improvements (18.5%-48.6% for 3-hop questions)</strong>. This demonstrates that models <em>can</em> improve their reasoning with explicit scaffolding, but are bottlenecked by upstream linguistic and perceptual failures.</p>
+
+<h3>The "Overthinking" Phenomenon</h3>
+
+<p>The performance decrease on 2-hop questions with CoT prompting aligns with recent findings by Peng et al.<d-cite key="peng2025overthinking"></d-cite> on "Revisiting Overthinking in Long Chain-of-Thought from the Perspective of Self-Doubt." Simple spatial relationships may not benefit from, or even be harmed by explicit multi-step reasoning, as models second-guess themselves or introduce unnecessary complexity.</p>
+
+<h3>Toward Better Benchmarks</h3>
+
+<p>Our work highlights the need for <strong>diagnostic benchmarks</strong> that:</p>
+
+<ol>
+    <li>Separately measure linguistic understanding, visual perception, and reasoning</li>
+    <li>Provide quantitative breakdowns of error sources</li>
+    <li>Include multiple valid reasoning paths in ground truth annotations</li>
+    <li>Distinguish between different types of spatial reasoning (mental rotation, egocentric perspective, compositional relationships)</li>
+</ol>
+
+<p>The three-stage framework we propose (question understanding → visual perception → reasoning) provides a template for such benchmarks.</p>
+
+<h2>Limitations and Future Work</h2>
+
+<p>This study has several limitations that warrant consideration:</p>
+
+<ol>
+    <li><strong>Annotation Requirements:</strong> The diagnostic framework relies on scene graphs and bounding box annotations that require comprehensive protocols. Scene graphs should be designed to properly represent question understanding.</li>
+    
+    <li><strong>Model Coverage:</strong> The qualitative analysis focused primarily on Gemini 2.5 Flash-Lite as a case study. Extending this analysis across all evaluated models would provide more robust evidence for generalizability.</li>
+    
+    <li><strong>Additional Failure Modes:</strong> The three-stage framework addresses primary failure modes, but additional cognitive processes may contribute to spatial reasoning failures.
+        </ul>
+    </li>
+    </ol>
+
+<h2>Conclusion</h2>
+
+<p>This investigation reveals that Large Multimodal Models' struggles with spatial reasoning stem from a complex interplay of linguistic comprehension, visual perception, and reasoning capabilities. Our key findings include:</p>
+
+<ol>
+    <li><strong>CoT prompting shows inconsistent benefits at the aggregate level</strong>, but when isolated to pure reasoning tasks (where structural aids provide no help), demonstrates substantial improvements for moderately complex (3-hop) questions (18.5%-48.6% accuracy gain).</li>
+    
+    <li><strong>A persistent 20-40% performance gap exists between camera and human perspective questions</strong>, indicating fundamental limitations in egocentric perspective-taking and mental rotation across all state-of-the-art models.</li>
+    
+    <li><strong>Many apparent "reasoning" failures are actually linguistic or perceptual</strong>, as demonstrated by the substantial improvements from scene graphs and bounding boxes.</li>
+    
+    <li><strong>The Spatial-MM benchmark contains critical flaws</strong>, including ambiguous questions, single-path ground truth annotations, and scene graphs that provide answers directly.</li>
+</ol>
+
+<p>The three-stage diagnostic framework proposed by this posts provides a methodology for future spatial reasoning benchmarks by using systematically isolation of question understanding, visual perception, and reasoning. This decomposition enables quantitative assessment of where models fail and guides targeted improvements.</p>
+
+<p>Moving forward, the field needs benchmarks that properly isolate different cognitive components, accept multiple valid reasoning paths, and provide diagnostic breakdowns of error sources, in order to properly measure progress in spatial reasoning and develop targeted interventions to improve model capabilities.</p>
+
+<p><strong>The question is not simply "Can LMMs perform spatial reasoning?" but rather "Where exactly do they fail, and how can we systematically improve each component?"</strong> This post provides a potential framework for answering these questions thoroughly.</p>
+
+</d-article>
+
+<d-appendix>
+
+  <d-bibliography src="bibliography.bib"></d-bibliography>
+</d-appendix>
+
+</body>
+</html>
